@@ -1,30 +1,36 @@
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 from threading import Thread
+import socket
 
 app = Flask(__name__)
 socketio = SocketIO(app)
 
+@app.errorhandler(500)
+def internal_server_error(error):
+    return render_template('500.html', error_message="Internal Server Error"), 500
+
 drone_state = {
     'camera': None,
-    'serverDroneCoordinates': {'Circle_Value_angle_R': 0, 'Circle_Value_angle_L': 0},
+    'server_drone_coordinates': {'latitude': 32.34867703112118, 'longitude':  -6.342779389650304},
     'serverBatteryPercentage': 100,
     'return_home_enabled': False,
-    'rth_serverDroneCoordinates': {'latitude': 0, 'longitude': 0},
+    'rth_coordinates': {'latitude': 0, 'longitude': 0},
     'headless_flight_mode': False,
     'guided_flight_mode': False,
     'power_on': False,
-    'serverLeftJoystick' : {degree : 0,percentage : 0},
-    'serverRightJoystick' : {degree : 0}
+    'serverLeftJoystick' : {'degree' : 0,'percentage' : 0},
+    'serverRightJoystick' : {'degree' : 0}
 }
 
+
+@socketio.on('analog_controls')
 def analog_controls_thread():
     while drone_state['power_on']:
         if 'serverLeftJoystick' in drone_state:
             degree = drone_state['serverLeftJoystick'].get('degree', 0)
             percentage = drone_state['serverLeftJoystick'].get('percentage', 0)
 
-            # Convert values to 0-10 m/s range
             degree = (degree + 100) / 20
             percentage = (percentage + 100) / 20
 
@@ -39,30 +45,56 @@ def analog_controls_thread():
 @socketio.on('camera_feed')
 def handle_camera_feed(data):
     drone_state['camera'] = data
-    socketio.emit('camera_feed', data)
+    if 'power_on' == True :
+     socketio.emit('camera_feed', data)
+     sleep (0.1)
 
-@socketio.on('serverDroneCoordinates')
-def handle_serverDroneCoordinates(data):
-    drone_state['serverDroneCoordinates'] = data
-    socketio.emit('serverDroneCoordinates', data)
+@socketio.on('server_drone_coordinates')
+def handle_server_drone_coordinates(data):
+    drone_state['server_drone_coordinates'] = data
+    socketio.emit('server_drone_coordinates', jsonify(data) )
+
+    
+
 
 @socketio.on('serverBatteryPercentage')
 def handle_serverBatteryPercentage(data):
     drone_state['serverBatteryPercentage'] = data
-    socketio.emit('serverBatteryPercentage', data)
+    if 'power_on' == True :
+     socketio.emit('serverBatteryPercentage', jsonify(data) )
+     sleep (0.1)
 
-@socketio.on('analog_controls')
-def handle_analog_controls(data):
-    socketio.emit('analog_controls', data)
+
+@socketio.on('ping')
+def handle_ping(data):
+    if 'power_on' == True :
+     socketio.emit('ping', data)
+     sleep (0.1)
 
 @app.route('/return_home', methods=['POST'])
 def return_home():
-    drone_state['return_home_enabled'] = True
-    return jsonify({'message': 'Return Home initiated'})
+    data = request.json
+    is_rth_enabled = data.get('status')
+    print (is_rth_enabled)
+    if is_rth_enabled == True :
+        pass
+    if is_rth_enabled == False :
+        pass
+    return jsonify(is_rth_enabled)
+
+
 
 @app.route('/land', methods=['POST'])
 def land():
-    return jsonify({'message': 'Landing initiated'})
+    data = request.json
+    is_land = data.get('status')
+    if is_land == True :
+        print ('Landing enabled')
+    if is_land == False :
+        print ('Landing disabled')
+    print (is_land)
+    return jsonify(is_land)
+
 
 @app.route('/toggle_headless_flight_mode', methods=['POST'])
 def toggle_headless_flight_mode():
@@ -76,28 +108,31 @@ def toggle_guided_flight_mode():
 
 @app.route('/change_rth_coordinates', methods=['POST'])
 def change_rth_coordinates():
-    data = request.get_json()
-    drone_state['rth_coordinates']['latitude'] = data.get('latitude', 0)
-    drone_state['rth_coordinates']['longitude'] = data.get('longitude', 0)
-    return jsonify({'message': 'RTH coordinates changed'})
+    data = request.json
+    coordinates = data.get('coordinates')
+    if not coordinates:
+        return jsonify("New homepoint set")
+    'rth_coordinates' == coordinates
+    return jsonify("coordinates succefully changed to :" , coordinates)
 
-@app.route('/toggle_power', methods=['POST'])
-def power_on():
-    drone_state['power_on'] = not drone_state['power_off']
-    return jsonify({'power_on': drone_state['power_on']})
-def power_off():
-    drone_state['power_on'] = False
-    return jsonify({'power_off': drone_state['power_off']})
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-def receive_data_from_external_app(data):
-    if 'camera' in data:
-        handle_camera_feed(data['camera'])
-    if 'serverDroneCoordinates' in data:
-        handle_serverDroneCoordinates(data['serverDroneCoordinates'])
-    if 'serverBatteryPercentage' in data:
-        handle_serverBatteryPercentage(data['serverBatteryPercentage'])
-    if 'analog_controls' in data:
-        handle_analog_controls(data['analog_controls'])
+@app.route('/toggle_start', methods=['POST'])
+def start_state():
+    data = request.json
+    is_start = data.get('status')
+    if is_start == True :
+        'power_on' == True
+        print ('Drone started')
+    if is_start == False :
+        'power_on' == False
+        print ('Drone stopped')
+    return jsonify(is_start)
+
+
+
 
 if __name__ == '__main__':
-    socketio.run(app)
+    socketio.run(app) 
